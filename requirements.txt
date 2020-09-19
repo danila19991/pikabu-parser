@@ -5,3 +5,4 @@ pandas==0.25.3
 numpy==1.17.3
 joblib==0.14.0
 selectolax==0.2.3
+requests-async==0.6.2

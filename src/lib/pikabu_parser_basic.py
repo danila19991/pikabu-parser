@@ -4,6 +4,20 @@ import pandas as pd
 import os
 import time
 import argparse
+from subprocess import Popen, PIPE, DEVNULL
+
+
+class Tmesure:
+    def __init__(self):
+        self.download = 0.
+        self.parse = 0.
+
+
+g_time = Tmesure()
+time1 = 0
+time2 = 0
+time3 = 0
+time4 = 0
 
 
 class DataElem:
@@ -43,25 +57,38 @@ def get_article_description(id: int, error_list=None) -> DataElem:
         error_list = list()
         need_show_errors = True
 
-    res = requests.get('https://pikabu.ru/story/_' + str(id), headers={'user-agent':'Googlebot/2.1 (+http://www.google.com/bot.html)'})
+    time1 = time.time()
+
+    p = Popen(['curl-7.71.0-win64-mingw/bin/curl.exe', 'https://pikabu.ru/story/_' + str(id)], stdout=PIPE, stderr=DEVNULL)
+    res = p.communicate()[0]
+
+    # res = requests.get('https://pikabu.ru/story/_' + str(id), headers={'user-agent':'Googlebot/2.1 (+http://www.google.com/bot.html)'})
 
     data = DataElem(id)
 
-    if res.status_code != 200:
-        data.error_mes += f"return {res.status_code} status code"
-        error_list.append(f"{id} return {res.status_code} status code")
-        return data
+    time2 = time.time()
 
-    soup = BeautifulSoup(res.content, "lxml")
+    global g_time
+    g_time.download += time2 - time1
+
+    # if res.status_code != 200:
+    #     data.error_mes += f"return {res.status_code} status code"
+    #     error_list.append(f"{id} return {res.status_code} status code")
+    #     return data
+
+    # soup = BeautifulSoup(res.content, "lxml")
+    soup = BeautifulSoup(res, "lxml")
 
     article = soup.find("article", {"data-story-id": id})
     if article is None:
-        if soup.find('div', {'class': 'stories-feed'}):
-            data.error_mes += "redirected to main page"
-            error_list.append(f"{id} redirected to main page")
-        else:
-            data.error_mes += "unknown error"
-            error_list.append(f"{id} article not found")
+        data.error_mes += "can't download with curl"
+        error_list.append(f"{id} can't download with curl")
+        # if soup.find('div', {'class': 'stories-feed'}):
+        #     data.error_mes += "redirected to main page"
+        #     error_list.append(f"{id} redirected to main page")
+        # else:
+        #     data.error_mes += "unknown error"
+        #     error_list.append(f"{id} article not found")
         return data
 
     left_elem = article.find("div", {"class": "story__left"})
@@ -97,7 +124,8 @@ def get_article_description(id: int, error_list=None) -> DataElem:
             if has_type == 'story-block' and len(elem['class']) == 2 and \
                 elem['class'][1] == 'story-block_type_text':
                 data.text_content += elem.text.strip() + '\n'
-            elif elem.text.strip() != '':
+            elif has_type not in ['story__content', 'story__content-inner'] and \
+                    elem.text.strip() != '':
                 error_list.append(f"{id} incorrect empty block {has_type}")
         elif has_type == 'story-image':
             img = elem.find('img')
@@ -161,6 +189,9 @@ def get_article_description(id: int, error_list=None) -> DataElem:
         except ValueError:
             error_list.append(f"{id} can't decode minuses number")
 
+    time3 = time.time()
+    g_time.parse += time3 - time2
+
     if need_show_errors:
         for mes in error_list:
             print(mes)
@@ -190,7 +221,8 @@ def get_article_range(start, end=None) -> (pd.DataFrame, list):
                              'error': []})
     for i in range(start, end):
         # print(i)
-        tmp = get_article_description(i, error_list=errors).as_list
+        tmp = get_article_description(i, error_list=errors)
+        tmp = tmp.as_list
         if tmp:
             res.loc[tmp[0]] = tmp[1:]
 
@@ -198,8 +230,11 @@ def get_article_range(start, end=None) -> (pd.DataFrame, list):
 
 
 def may_be_main(func):
-    data_path = os.path.dirname(os.path.abspath(__file__)) + '/data2'
-    error_path = os.path.dirname(os.path.abspath(__file__)) + '/log_mes'
+    global g_time
+    g_time = Tmesure()
+
+    data_path = os.path.dirname(os.path.abspath(__file__)) + '/temp'
+    error_path = os.path.dirname(os.path.abspath(__file__)) + '/log_mes_orig'
 
     parser = argparse.ArgumentParser(description='Crowle some posts from pikabu')
     parser.add_argument('start', type=int, nargs=1, default=50,
@@ -224,7 +259,7 @@ def may_be_main(func):
         for mes in erros:
             f_out.write(mes+'\n')
 
-    print(end-start)
+    print(end-start, '|download:', g_time.download, '|parse:', g_time.parse)
 
 
 if __name__ == '__main__':
